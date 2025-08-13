@@ -124,5 +124,7 @@
   "placeholder_select_lane_column": "-- Select Lane Column --",
   "replicate_title": "Replicate FIELD settings to which lanes?",
   "replicate_select_all": "Select all",
-  "replicate_ok_button": "OK"
+  "replicate_ok_button": "OK",
+  "alert_config_saved": "Settings saved and widget reloaded!",
+  "alert_loading_data": "Loading data and settings..."
 }

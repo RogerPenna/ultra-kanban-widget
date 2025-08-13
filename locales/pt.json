@@ -124,5 +124,7 @@
   "placeholder_select_lane_column": "-- Selecione Coluna de Lane --",
   "replicate_title": "Replicar configuração de CAMPOS para quais lanes?",
   "replicate_select_all": "Marcar todos",
-  "replicate_ok_button": "OK"
+  "replicate_ok_button": "OK",
+  "alert_config_saved": "Configurações salvas e widget recarregado!",
+  "alert_loading_data": "Carregando dados e configurações..."
 }

@@ -124,5 +124,7 @@
   "placeholder_select_lane_column": "-- Sélectionnez la Colonne de Lane --",
   "replicate_title": "Répliquer la configuration des CHAMPS vers quelles colonnes ?",
   "replicate_select_all": "Tout sélectionner",
-  "replicate_ok_button": "OK"
+  "replicate_ok_button": "OK",
+  "alert_config_saved": "Paramètres enregistrés et widget rechargé !",
+  "alert_loading_data": "Chargement des données et des paramètres..."
 }

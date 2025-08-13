@@ -124,5 +124,7 @@
   "placeholder_select_lane_column": "-- Seleccione Columna de Carril --",
   "replicate_title": "¿Replicar configuración de CAMPOS a qué carriles?",
   "replicate_select_all": "Seleccionar todos",
-  "replicate_ok_button": "Aceptar"
+  "replicate_ok_button": "Aceptar",
+  "alert_config_saved": "¡Configuración guardada y widget recargado!",
+  "alert_loading_data": "Cargando datos y configuración..."
 }
