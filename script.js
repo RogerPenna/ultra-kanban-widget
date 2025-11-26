@@ -1377,16 +1377,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (orderedLaneValues.length === 0 && definingColMeta.type.startsWith("Ref")) { console.warn(`Coluna de Lane '${definingColMeta.label}' é do tipo Ref sem 'choices'. Lanes podem não aparecer corretamente sem dados ou configuração de choices explícita.`); }
                 
                 const uniqueLaneValues = [...new Set(orderedLaneValues)];
-                // DEBUG: Log what Grist provides for choiceOptions
-                console.log('DEBUG choiceOptions:', JSON.stringify(definingColMeta.widgetOptions?.choiceOptions, null, 2));
                 uniqueLaneValues.forEach((laneValueStr, index) => {
                     let laneColor = palette(index); let laneTextColor = null; let fontBold = false;
                     const co = definingColMeta.widgetOptions?.choiceOptions?.[laneValueStr];
-                    console.log(`DEBUG lane "${laneValueStr}":`, co ? JSON.stringify(co) : 'no choiceOptions');
                     if (co) { if (co.fillColor) laneColor = co.fillColor; if (co.textColor) laneTextColor = co.textColor; if (co.fontBold) fontBold = co.fontBold; }
                     // Use Grist's textColor if provided, otherwise calculate contrast
                     if (!laneTextColor) laneTextColor = getContrastColor(laneColor);
-                    console.log(`DEBUG lane "${laneValueStr}" final: color=${laneColor}, textColor=${laneTextColor}`);
                     kanbanLanesStructure.push({ value: String(laneValueStr), color: laneColor, textColor: laneTextColor, fontBold: fontBold, isUnmatched: false });
                 });
                 if (kanbanLanesStructure.length === 0 && definingColMeta) { if(errEl) errEl.textContent = `A coluna Kanban "${definingColMeta.label}" (${definingColId}) não possui 'choices' definidos nas opções da coluna no Grist, nem há dados nessa coluna para derivar as lanes. Adicione 'choices' ou preencha alguns cartões com status.`; }
