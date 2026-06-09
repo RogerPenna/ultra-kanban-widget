@@ -97,12 +97,12 @@ document.addEventListener('DOMContentLoaded', function () {
     return { fetchAll, getAllTableIdsAndNames, getTableSchema, colToRows, columnsOf };
   })();
 
-  window.WidgetConfigManager = (function() {
+    window.WidgetConfigManager = (function() {
     const KANBAN_DEFAULTS_INTERNAL = {
-        language: 'pt', // <-- NOVO PADRÃO ADICIONADO AQUI
+        language: 'pt',
         kanbanDefiningColumnId: null,
         restrictAdjacentMove: false,
-        laneWipLimits: {},
+        laneWipLimits: {}, // Now includes { maxVisible, maxAllowed, hidden }
         cardSortCriteria: [{ columnId: null, direction: 'asc', displayType: '' }, { columnId: null, direction: 'asc', displayType: '' }, { columnId: null, direction: 'asc', displayType: '' }],
         visual: { centerColumns: false, columnWidthPercent:  25, columnMinWidth: 200, columnMaxWidth: 400, columnColor: '#F8F9FA', cardColor: '#FFFFFF', cardShadow: true, backgroundType: 'solid', solidBackgroundColor: '#E9ECEF', gradientColor1: '#E9ECEF', gradientColor2: '#D8DCDF', gradientDirection: 'to right', drawerFontColor: '#333333', cardTitleFontColor: '#333333', cardFieldsFontColor: '#333333' },
         rules: {}
@@ -123,18 +123,16 @@ document.addEventListener('DOMContentLoaded', function () {
         if (stored?.visual && typeof stored.visual.cardShadow !== 'undefined') { currentConfig.visual.cardShadow = Boolean(stored.visual.cardShadow); } else { currentConfig.visual.cardShadow = KANBAN_DEFAULTS_INTERNAL.visual.cardShadow; }
       },
       saveConfig: async () => { await grist.setOption(CURRENT_CONFIG_KEY_FOR_GRIST, currentConfig); },
-      // --- INÍCIO DAS NOVAS FUNÇÕES ---
       getLanguage: () => currentConfig.language || 'pt',
       setLanguage: (langCode) => { currentConfig.language = langCode; },
-      // --- FIM DAS NOVAS FUNÇÕES ---
       getVisualConfig: () => ({ ...currentConfig.visual }),
       setVisualConfig: (vis) => { currentConfig.visual = { ...KANBAN_DEFAULTS_INTERNAL.visual, ...currentConfig.visual, ...vis }; if (typeof vis.cardShadow === 'boolean') { currentConfig.visual.cardShadow = vis.cardShadow; } },
       getKanbanDefiningColumn: () => currentConfig.kanbanDefiningColumnId,
       setKanbanDefiningColumn: (colId) => { currentConfig.kanbanDefiningColumnId = colId; },
       getRestrictAdjacentMove: () => currentConfig.restrictAdjacentMove,
       setRestrictAdjacentMove: (v) => { currentConfig.restrictAdjacentMove = Boolean(v); },
-      getLaneWipLimit: (lv) => ({maxVisible: 0,maxAllowed: 0,...currentConfig.laneWipLimits?.[String(lv)]}),
-      setLaneWipLimit: (lv, lim) => { currentConfig.laneWipLimits = currentConfig.laneWipLimits || {}; currentConfig.laneWipLimits[String(lv)] = {maxVisible: parseInt(lim.maxVisible, 10) || 0, maxAllowed: parseInt(lim.maxAllowed, 10) || 0};},
+      getLaneWipLimit: (lv) => ({maxVisible: 0, maxAllowed: 0, hidden: false, ...currentConfig.laneWipLimits?.[String(lv)]}),
+      setLaneWipLimit: (lv, lim) => { currentConfig.laneWipLimits = currentConfig.laneWipLimits || {}; currentConfig.laneWipLimits[String(lv)] = {maxVisible: parseInt(lim.maxVisible, 10) || 0, maxAllowed: parseInt(lim.maxAllowed, 10) || 0, hidden: Boolean(lim.hidden)};},
       getCardSortCriteria: () => currentConfig.cardSortCriteria.map(c => ({ ...c })),
       setCardSortCriteria: (crit) => { if (Array.isArray(crit) && crit.length === 3) currentConfig.cardSortCriteria = crit; else console.warn("setCardSortCriteria inválido"); },
       getFieldConfigForLane: (t, lv, f) => {
@@ -452,13 +450,14 @@ document.addEventListener('DOMContentLoaded', function () {
       wipLimitsTableContainerEl.innerHTML = '';
       const table = document.createElement('table'); table.className = 'wip-limit-table';
       const thead = table.createTHead(); const headerRow = thead.insertRow();
-      ["Lane", _('max_visible'), _('max_allowed')].forEach(text => { const th = document.createElement('th'); th.textContent = text; headerRow.appendChild(th); });
+      ["Lane", _('max_visible'), _('max_allowed'), _('hidden')].forEach(text => { const th = document.createElement('th'); th.textContent = text; headerRow.appendChild(th); });
       const tbody = table.createTBody();
       currentKanbanLanes.filter(lane => !lane.isUnmatched).forEach(lane => {
         const row = tbody.insertRow(); row.insertCell().textContent = lane.value || "[Vazio]";
         const currentLimits = WidgetConfigManager.getLaneWipLimit(lane.value);
         let cellVisible = row.insertCell(); let inputVisible = document.createElement('input'); inputVisible.type = 'number'; inputVisible.min = '0'; inputVisible.placeholder = _('all'); inputVisible.dataset.laneValue = lane.value; inputVisible.dataset.limitType = 'maxVisible'; inputVisible.value = currentLimits.maxVisible > 0 ? currentLimits.maxVisible : ''; cellVisible.appendChild(inputVisible);
         let cellAllowed = row.insertCell(); let inputAllowed = document.createElement('input'); inputAllowed.type = 'number'; inputAllowed.min = '0'; inputAllowed.placeholder = _('no_limit'); inputAllowed.dataset.laneValue = lane.value; inputAllowed.dataset.limitType = 'maxAllowed'; inputAllowed.value = currentLimits.maxAllowed > 0 ? currentLimits.maxAllowed : ''; cellAllowed.appendChild(inputAllowed);
+        let cellHidden = row.insertCell(); let inputHidden = document.createElement('input'); inputHidden.type = 'checkbox'; inputHidden.dataset.laneValue = lane.value; inputHidden.dataset.limitType = 'hidden'; inputHidden.checked = !!currentLimits.hidden; cellHidden.appendChild(inputHidden);
       });
       wipLimitsTableContainerEl.appendChild(table);
     }
@@ -650,7 +649,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (langSelect) { WidgetConfigManager.setLanguage(langSelect.value); }
         // --- FIM DA LINHA NOVA ---
 
-        if (definingColumnMapSelectEl) WidgetConfigManager.setKanbanDefiningColumn(definingColumnMapSelectEl.value || null); if (restrictAdjacentMoveCbEl) WidgetConfigManager.setRestrictAdjacentMove(restrictAdjacentMoveCbEl.checked); if (wipLimitsTableContainerEl) { wipLimitsTableContainerEl.querySelectorAll('input[type="number"][data-lane-value]').forEach(input => { const laneVal = input.dataset.laneValue; const limitType = input.dataset.limitType; const val = parseInt(input.value, 10) || 0; const limits = WidgetConfigManager.getLaneWipLimit(laneVal); if (limitType === 'maxVisible') limits.maxVisible = val; else if (limitType === 'maxAllowed') limits.maxAllowed = val; WidgetConfigManager.setLaneWipLimit(laneVal, limits); }); } if (cardSortCriteriaContainerEl) { const newSortCriteria = []; for (let i = 0; i < 3; i++) { newSortCriteria.push({ columnId: cardSortCriteriaContainerEl.querySelector(`#sort-col-${i}`)?.value || null, direction: cardSortCriteriaContainerEl.querySelector(`#sort-dir-${i}`)?.value || 'asc', displayType: cardSortCriteriaContainerEl.querySelector(`#sort-type-${i}`)?.value || '' }); } WidgetConfigManager.setCardSortCriteria(newSortCriteria); }
+        if (definingColumnMapSelectEl) WidgetConfigManager.setKanbanDefiningColumn(definingColumnMapSelectEl.value || null); if (restrictAdjacentMoveCbEl) WidgetConfigManager.setRestrictAdjacentMove(restrictAdjacentMoveCbEl.checked); if (wipLimitsTableContainerEl) { wipLimitsTableContainerEl.querySelectorAll('input[data-lane-value]').forEach(input => { const laneVal = input.dataset.laneValue; const limitType = input.dataset.limitType; const limits = WidgetConfigManager.getLaneWipLimit(laneVal); if (limitType === 'maxVisible') limits.maxVisible = parseInt(input.value, 10) || 0; else if (limitType === 'maxAllowed') limits.maxAllowed = parseInt(input.value, 10) || 0; else if (limitType === 'hidden') limits.hidden = input.checked; WidgetConfigManager.setLaneWipLimit(laneVal, limits); }); } if (cardSortCriteriaContainerEl) { const newSortCriteria = []; for (let i = 0; i < 3; i++) { newSortCriteria.push({ columnId: cardSortCriteriaContainerEl.querySelector(`#sort-col-${i}`)?.value || null, direction: cardSortCriteriaContainerEl.querySelector(`#sort-dir-${i}`)?.value || 'asc', displayType: cardSortCriteriaContainerEl.querySelector(`#sort-type-${i}`)?.value || '' }); } WidgetConfigManager.setCardSortCriteria(newSortCriteria); }
         WidgetConfigManager.setVisualConfig({ centerColumns: centerColumnsCb.checked, columnWidthPercent: Number(colWidthPercentInput.value) || 0, columnMinWidth: Number(colMinWidthInput.value) || 0, columnMaxWidth: Number(colMaxWidthInput.value) || 0, columnColor: colColorInput.value, cardColor: cardColorInput.value, cardShadow: cardShadowInput.checked, backgroundType: cfgBackgroundTypeSelect.value, solidBackgroundColor: cfgSolidBgColorInput.value, gradientColor1: cfgGradientColor1Input.value, gradientColor2: cfgGradientColor2Input.value, gradientDirection: cfgGradientDirectionSelect.value, drawerFontColor: cfgDrawerFontColorInput.value, cardTitleFontColor: cfgCardTitleFontColorInput.value, cardFieldsFontColor: cfgCardFieldsFontColorInput.value });
         const newRulesConfig = {};
         if (rulesConfigAreaEl) {
@@ -780,8 +779,27 @@ document.addEventListener('DOMContentLoaded', function () {
     const safe = (o, k, f = null) => (o && k in o && o[k] !== undefined && o[k] !== null) ? o[k] : f;
     let gristTableMeta = null, gristRows = [], allGristTables = [], gristTableOps = null, kanbanLanesStructure = [], currentEditingCardId = null, currentEditingCardData = null, currentVisibleCardsByLane = {}, refListCache = {};
 
-    function formatEpoch(val, type) { const num = Number(val); if (isNaN(num) || num === 0) { return val; } const dateObj = new Date(num * 1000); if (isNaN(dateObj.valueOf())) return val; return type === 'Date' ? dateObj.toLocaleDateString(undefined, { timeZone: 'UTC' }) : dateObj.toLocaleString(undefined, { timeZone: 'UTC' }); }
-    
+    function formatEpoch(val, type, colMeta = null) {
+        const num = Number(val);
+        if (isNaN(num) || num === 0) return val;
+        const dateObj = new Date(num * 1000);
+        if (isNaN(dateObj.valueOf())) return val;
+
+        // Try to get format from Grist metadata
+        let dateFormat = colMeta?.widgetOptions?.dateFormat;
+        let isTimeDisplayed = colMeta?.widgetOptions?.isTimeDisplayed;
+        
+        // Basic mapping of Grist formats to JS toLocaleDateString options
+        // This is a simplification; a full library like moment or date-fns would be better but let's keep it light.
+        const options = { timeZone: 'UTC' };
+        if (type === 'DateTime' || isTimeDisplayed) {
+            options.hour = '2-digit';
+            options.minute = '2-digit';
+        }
+
+        return dateObj.toLocaleString(undefined, options);
+    }
+
     async function findBackReferenceColumn(tableA_Id, tableB_Schema) {
         const expectedRefType = `Ref:${tableA_Id}`;
         const col = tableB_Schema.columns.find(c => c.type === expectedRefType);
@@ -790,7 +808,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     async function populateRefListTable(containerEl, colDef, refListValue) {
-        containerEl.innerHTML = '<p>Carregando registros vinculados...</p>';
+        containerEl.innerHTML = `<p>${_('loading_linked_records')}</p>`;
         try {
             const tableA_Id = gristTableMeta.nameId;
             const tableB_Id = colDef.referencedTableId;
@@ -801,7 +819,7 @@ document.addEventListener('DOMContentLoaded', function () {
             containerEl.innerHTML = '';
             
             const controlsDiv = document.createElement('div'); controlsDiv.style.marginBottom = '8px';
-            const addBtn = document.createElement('button'); addBtn.textContent = '+ Adicionar Novo';
+            const addBtn = document.createElement('button'); addBtn.textContent = `+ ${_('add_new_button')}`;
             addBtn.onclick = () => handleRefListRecordAction(containerEl, colDef, tableB_Schema, backRefColId, null);
             controlsDiv.append(addBtn);
             containerEl.appendChild(controlsDiv);
@@ -824,14 +842,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 
             columnsToShow.forEach(c => { headerRow.insertCell().textContent = c.label; });
-            headerRow.insertCell().textContent = 'Ações';
+            headerRow.insertCell().textContent = _('actions');
             
             const tbody = table.createTBody();
             if (linkedRecords.length === 0) {
                 const emptyRow = tbody.insertRow();
                 const emptyCell = emptyRow.insertCell();
                 emptyCell.colSpan = columnsToShow.length + 1;
-                emptyCell.textContent = 'Nenhum registro vinculado.';
+                emptyCell.textContent = _('no_linked_records');
                 emptyCell.style.textAlign = 'center'; emptyCell.style.fontStyle = 'italic';
             } else {
                 linkedRecords.forEach(rec => {
@@ -845,22 +863,22 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
                     });
                     const cellActions = tr.insertCell();
-                    const editBtn = document.createElement('button'); editBtn.className = 'reflist-action-btn'; editBtn.textContent = '✏️'; editBtn.title = 'Editar';
+                    const editBtn = document.createElement('button'); editBtn.className = 'reflist-action-btn'; editBtn.textContent = '✏️'; editBtn.title = _('edit');
                     editBtn.onclick = () => handleRefListRecordAction(containerEl, colDef, tableB_Schema, backRefColId, rec);
-                    const unlinkBtn = document.createElement('button'); unlinkBtn.className = 'reflist-action-btn'; unlinkBtn.textContent = '🗑️'; unlinkBtn.title = 'Desvincular';
+                    const unlinkBtn = document.createElement('button'); unlinkBtn.className = 'reflist-action-btn'; unlinkBtn.textContent = '🗑️'; unlinkBtn.title = _('unlink');
                     unlinkBtn.onclick = () => handleRefListUnlink_Single(containerEl, colDef, tableB_Schema, backRefColId, rec.id);
                     cellActions.append(editBtn, unlinkBtn);
                 });
             }
         } catch (err) {
             console.error("Failed to populate RefList table:", err);
-            containerEl.innerHTML = `<p style="color:red;">Erro ao carregar lista: ${err.message}</p>`;
+            containerEl.innerHTML = `<p style="color:red;">${_('error_loading_list')}: ${err.message}</p>`;
         }
     }
 
     async function handleRefListRecordAction(containerEl, colDef, tableB_Schema, backRefColId, recordToEdit = null) {
         const isEditing = recordToEdit !== null;
-        const modalTitle = isEditing ? `Editar em "${tableB_Schema.tableId}"` : `Adicionar em "${tableB_Schema.tableId}"`;
+        const modalTitle = isEditing ? `${_('edit')} ${_('in')} "${tableB_Schema.tableId}"` : `${_('add')} ${_('in')} "${tableB_Schema.tableId}"`;
         const modal = document.createElement('div'); modal.className = 'replicate-modal';
         const content = document.createElement('div'); content.className = 'replicate-content'; content.style.width = '500px';
         modal.appendChild(content); content.innerHTML = `<h3>${modalTitle}</h3>`;
@@ -890,9 +908,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!isEditable) {
                 input = document.createElement('div');
                 input.className = 'readonly-field';
-                input.textContent = isEditing ? (recordToEdit[c.id] || '') : '[Não editável]';
+                input.textContent = isEditing ? (recordToEdit[c.id] || '') : `[${_('not_editable')}]`;
             } else if (c.choices && c.choices.length > 0) {
-                input = document.createElement('select'); input.add(new Option('-- Selecione --', ''));
+                input = document.createElement('select'); input.add(new Option(`-- ${_('select')} --`, ''));
                 c.choices.forEach(ch => input.add(new Option(ch, ch)));
                 if (isEditing) input.value = recordToEdit[c.id] || '';
             } else if (c.type === 'Bool') {
@@ -909,15 +927,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         const actions = document.createElement('div'); actions.style.marginTop = '15px';
-        const saveBtn = document.createElement('button'); saveBtn.textContent = 'Salvar';
-        const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Cancelar'; cancelBtn.style.marginLeft = '8px';
+        const saveBtn = document.createElement('button'); saveBtn.textContent = _('save_button');
+        const cancelBtn = document.createElement('button'); cancelBtn.textContent = _('cancel_button'); cancelBtn.style.marginLeft = '8px';
         actions.append(saveBtn, cancelBtn); content.appendChild(actions);
         document.body.appendChild(modal);
 
         cancelBtn.onclick = () => document.body.removeChild(modal);
         saveBtn.onclick = async () => {
             try {
-                saveBtn.disabled = true; saveBtn.textContent = 'Salvando...';
+                saveBtn.disabled = true; saveBtn.textContent = `${_('saving')}...`;
                 const fieldsToSave = {};
                 form.querySelectorAll('[data-col-id]').forEach(inp => {
                     if (!inp.closest('.readonly-field')) {
@@ -943,15 +961,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 document.body.removeChild(modal);
             } catch (err) {
-                alert(`Erro ao salvar: ${err.message}`);
+                alert(`${_('error_saving')}: ${err.message}`);
                 console.error("Error saving RefList record:", err);
-                saveBtn.disabled = false; saveBtn.textContent = 'Salvar';
+                saveBtn.disabled = false; saveBtn.textContent = _('save_button');
             }
         };
     }
 
     async function handleRefListUnlink_Single(containerEl, colDef, tableB_Schema, backRefColId, recordIdToUnlink) {
-        if (!confirm(`Tem certeza que deseja desvincular este item? Ele não será excluído, apenas desassociado deste cartão.`)) { return; }
+        if (!confirm(_('confirm_unlink'))) { return; }
         try {
             const tableB_Ops = grist.getTable(tableB_Schema.tableId);
             await tableB_Ops.update([{ id: recordIdToUnlink, fields: { [backRefColId]: null } }]);
@@ -965,7 +983,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
         } catch (err) {
-            alert(`Erro ao desvincular: ${err.message}`);
+            alert(`${_('error_unlinking')}: ${err.message}`);
             console.error("Error unlinking RefList record:", err);
         }
     }
@@ -1066,7 +1084,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         });
                         fieldEl.appendChild(table);
                     } else {
-                        fieldEl.textContent = `${linkedRecords.length} item(ns) vinculado(s)`;
+                        fieldEl.textContent = `${linkedRecords.length} ${_('linked_items')}`;
                     }
                 } else {
                     if (linkedRecords.length > 0 && refListCache.schemas[refTableId]) {
@@ -1083,7 +1101,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 let displayValue = rawValueFromGrist;
                 if (colDef.type.startsWith('Ref:') && colDef.displayColId) { displayValue = safe(cardData, colDef.displayColId, ''); if (rawValueFromGrist === 0 || String(displayValue).startsWith("E,Invalid")) { displayValue = `[${_('none')}]`; } }
                 else if (colDef.type.startsWith('Ref:') && !colDef.displayColId) { displayValue = (rawValueFromGrist && rawValueFromGrist !== 0) ? `[Ref ID: ${rawValueFromGrist}]` : `[${_('none')}]`; }
-                else if (colDef.type === 'Date' || colDef.type === 'DateTime') { displayValue = formatEpoch(rawValueFromGrist, colDef.type); }
+                else if (colDef.type === 'Date' || colDef.type === 'DateTime') { displayValue = formatEpoch(rawValueFromGrist, colDef.type, colDef); }
                 
                 if (colDef.type === 'Bool') { fieldEl = document.createElement('input'); fieldEl.type = 'checkbox'; fieldEl.disabled = true; fieldEl.checked = Boolean(rawValueFromGrist); }
                 else if (colDef.type === 'ChoiceList') { fieldEl = document.createElement('div'); const choicesSelected = Array.isArray(rawValueFromGrist) && rawValueFromGrist[0] === 'L' ? rawValueFromGrist.slice(1) : []; if (choicesSelected.length > 0) { choicesSelected.forEach(opt => { const chip = document.createElement('span'); chip.className = 'choice-chip'; chip.textContent = opt; if (item.config.useFormatting && colDef.widgetOptions?.choiceOptions?.[opt]) { const cs = colDef.widgetOptions.choiceOptions[opt]; if (cs.fillColor) chip.style.backgroundColor = cs.fillColor; if (cs.textColor) chip.style.color = cs.textColor; } fieldEl.appendChild(chip); }); } else { fieldEl.textContent = `[${_('none')}]`; fieldEl.style.fontStyle = 'italic'; fieldEl.style.color = '#757575'; } }
@@ -1094,6 +1112,47 @@ document.addEventListener('DOMContentLoaded', function () {
             cardDiv.appendChild(fieldDiv);
         });
         cardDiv.onclick = () => openCardEditDrawer(cardData.id, cardLaneValue, cardData); return cardDiv;
+    }
+
+    function evaluateCondition(actualValue, operator, ruleValue, fieldType) {
+        if (operator === 'is_empty') return actualValue == null || actualValue === '' || (Array.isArray(actualValue) && actualValue.length === 0);
+        if (operator === 'is_not_empty') return actualValue != null && actualValue !== '' && (!Array.isArray(actualValue) || actualValue.length > 0);
+
+        let v = actualValue;
+        let rv = ruleValue;
+
+        if (fieldType === 'Numeric' || fieldType === 'Int' || fieldType === 'Date' || fieldType === 'DateTime') {
+            v = parseFloat(actualValue);
+            rv = parseFloat(ruleValue);
+        } else {
+            v = String(actualValue || "").toLowerCase();
+            rv = String(ruleValue || "").toLowerCase();
+        }
+
+        switch (operator) {
+            case '==': return v == rv;
+            case '!=': return v != rv;
+            case '>':  return v > rv;
+            case '<':  return v < rv;
+            case '>=': return v >= rv;
+            case '<=': return v <= rv;
+            case 'contains': return v.includes(rv);
+            case 'not_contains': return !v.includes(rv);
+            default: return false;
+        }
+    }
+
+    function getContrastColor(hexcolor) {
+        if (!hexcolor || hexcolor === 'transparent') return '#000000';
+        hexcolor = hexcolor.replace("#", "");
+        if (hexcolor.length === 3) {
+            hexcolor = hexcolor.split('').map(function (hex) { return hex + hex; }).join('');
+        }
+        const r = parseInt(hexcolor.substr(0, 2), 16);
+        const g = parseInt(hexcolor.substr(2, 2), 16);
+        const b = parseInt(hexcolor.substr(4, 2), 16);
+        const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+        return (yiq >= 128) ? '#000000' : '#ffffff';
     }
 
     async function renderKanbanView() {
@@ -1116,7 +1175,7 @@ document.addEventListener('DOMContentLoaded', function () {
         await Promise.all(promises);
         
         const definingColId = WidgetConfigManager.getKanbanDefiningColumn(); const cardsByLane = {}; kanbanLanesStructure.forEach(l => cardsByLane[l.value] = []); gristRows.forEach(row => { const laneValue = String(safe(row, definingColId, "")); if (cardsByLane.hasOwnProperty(laneValue)) { cardsByLane[laneValue].push(row); } else { if (!cardsByLane["_UNMATCHED_LANE_"]) cardsByLane["_UNMATCHED_LANE_"] = []; cardsByLane["_UNMATCHED_LANE_"].push(row); } }); const sortCriteria = WidgetConfigManager.getCardSortCriteria(); if (sortCriteria.some(c => c.columnId)) { for (const lv in cardsByLane) { if (lv === "_UNMATCHED_LANE_") continue; cardsByLane[lv].sort((A, B) => { for (const c of sortCriteria) { if (!c.columnId) continue; const colMeta = gristTableMeta.columns.find(x => x.id === c.columnId); const vA = safe(A, c.columnId), vB = safe(B, c.columnId); let cmp = 0; if (vA == null && vB != null) cmp = 1; else if (vB == null && vA != null) cmp = -1; else if (vA == null && vB == null) cmp = 0; else if (colMeta && (colMeta.type === 'Numeric' || colMeta.type === 'Int' || colMeta.type === 'Date' || colMeta.type === 'DateTime')) { cmp = parseFloat(vA) - parseFloat(vB); } else { cmp = String(vA).localeCompare(String(vB), undefined, { sensitivity: 'base' }); } if (cmp !== 0) return c.direction === 'asc' ? cmp : -cmp; } return 0; }); } }
-        kanbanLanesStructure.filter(l => !l.isUnmatched).forEach((lane, laneIndex) => { const columnDiv = document.createElement('div'); columnDiv.className = 'column'; columnDiv.dataset.laneValue = lane.value; columnDiv.style.flex = `0 0 ${vis.columnWidthPercent || 25}%`; columnDiv.style.minWidth = `${vis.columnMinWidth || 200}px`; columnDiv.style.maxWidth = `${vis.columnMaxWidth || 400}px`; if (vis.columnColor) columnDiv.style.backgroundColor = vis.columnColor; const headerDiv = document.createElement('div'); headerDiv.className = 'column-header'; headerDiv.style.backgroundColor = lane.color; headerDiv.style.color = lane.textColor; if (lane.fontBold) headerDiv.style.fontWeight = 'bold'; const totalInLane = (cardsByLane[lane.value] || []).length; const limits = WidgetConfigManager.getLaneWipLimit(lane.value); let headerText = `${lane.value || "[Vazio]"} (${totalInLane}`; if (limits.maxAllowed > 0) { headerText += `/${limits.maxAllowed}`; if (totalInLane >= limits.maxAllowed) { headerDiv.classList.add('wip-limit-exceeded'); headerDiv.title = `Limite WIP de ${limits.maxAllowed} atingido/excedido!`; } } headerText += ")"; headerDiv.textContent = headerText; columnDiv.appendChild(headerDiv); const addBtn = document.createElement('button'); addBtn.className = 'add-btn'; addBtn.textContent = _('new_card_button'); addBtn.onclick = () => { if (limits.maxAllowed > 0 && totalInLane >= limits.maxAllowed) { alert(`A lane "${lane.value}" atingiu o limite máximo de ${limits.maxAllowed} cartões.`); return; } addNewCardToLane(lane.value); }; columnDiv.appendChild(addBtn); const bodyDiv = document.createElement('div'); bodyDiv.className = 'column-body'; const cardsInThisLane = cardsByLane[lane.value] || []; currentVisibleCardsByLane[lane.value] = 0; const initiallyVisible = limits.maxVisible > 0 ? limits.maxVisible : CARDS_PER_PAGE; for (let i = 0; i < Math.min(cardsInThisLane.length, initiallyVisible); i++) { bodyDiv.appendChild(createCardElement(cardsInThisLane[i], lane.value)); currentVisibleCardsByLane[lane.value]++; } columnDiv.appendChild(bodyDiv); const pagDiv = document.createElement('div'); pagDiv.className = 'column-pagination-controls'; columnDiv.appendChild(pagDiv);
+        kanbanLanesStructure.filter(l => !l.isUnmatched && !WidgetConfigManager.getLaneWipLimit(l.value).hidden).forEach((lane, laneIndex) => { const columnDiv = document.createElement('div'); columnDiv.className = 'column'; columnDiv.dataset.laneValue = lane.value; columnDiv.style.flex = `0 0 ${vis.columnWidthPercent || 25}%`; columnDiv.style.minWidth = `${vis.columnMinWidth || 200}px`; columnDiv.style.maxWidth = `${vis.columnMaxWidth || 400}px`; if (vis.columnColor) columnDiv.style.backgroundColor = vis.columnColor; const headerDiv = document.createElement('div'); headerDiv.className = 'column-header'; headerDiv.style.backgroundColor = lane.color; headerDiv.style.color = lane.textColor; if (lane.fontBold) headerDiv.style.fontWeight = 'bold'; const totalInLane = (cardsByLane[lane.value] || []).length; const limits = WidgetConfigManager.getLaneWipLimit(lane.value); let headerText = `${lane.value || "[Vazio]"} (${totalInLane}`; if (limits.maxAllowed > 0) { headerText += `/${limits.maxAllowed}`; if (totalInLane >= limits.maxAllowed) { headerDiv.classList.add('wip-limit-exceeded'); headerDiv.title = `Limite WIP de ${limits.maxAllowed} atingido/excedido!`; } } headerText += ")"; headerDiv.textContent = headerText; columnDiv.appendChild(headerDiv); const addBtn = document.createElement('button'); addBtn.className = 'add-btn'; addBtn.textContent = _('new_card_button'); addBtn.onclick = () => { if (limits.maxAllowed > 0 && totalInLane >= limits.maxAllowed) { alert(`A lane "${lane.value}" atingiu o limite máximo de ${limits.maxAllowed} cartões.`); return; } addNewCardToLane(lane.value); }; columnDiv.appendChild(addBtn); const bodyDiv = document.createElement('div'); bodyDiv.className = 'column-body'; const cardsInThisLane = cardsByLane[lane.value] || []; currentVisibleCardsByLane[lane.value] = 0; const initiallyVisible = limits.maxVisible > 0 ? limits.maxVisible : CARDS_PER_PAGE; for (let i = 0; i < Math.min(cardsInThisLane.length, initiallyVisible); i++) { bodyDiv.appendChild(createCardElement(cardsInThisLane[i], lane.value)); currentVisibleCardsByLane[lane.value]++; } columnDiv.appendChild(bodyDiv); const pagDiv = document.createElement('div'); pagDiv.className = 'column-pagination-controls'; columnDiv.appendChild(pagDiv);
         function updatePaginationControls() { pagDiv.innerHTML = ''; const visibleCount = currentVisibleCardsByLane[lane.value]; const totalCount = cardsInThisLane.length; if (totalCount <= initiallyVisible && totalCount <= CARDS_PER_PAGE && limits.maxVisible === 0) { return; } if (totalCount > 0) { const showLessBtn = document.createElement('button'); showLessBtn.innerHTML = '▲'; showLessBtn.title = 'Mostrar menos'; showLessBtn.disabled = visibleCount <= (limits.maxVisible > 0 ? limits.maxVisible : CARDS_PER_PAGE); showLessBtn.onclick = () => { const targetVisible = limits.maxVisible > 0 ? limits.maxVisible : CARDS_PER_PAGE; Array.from(bodyDiv.querySelectorAll('.card')).slice(targetVisible).forEach(n => n.remove()); currentVisibleCardsByLane[lane.value] = Math.min(visibleCount, targetVisible); updatePaginationControls(); }; pagDiv.appendChild(showLessBtn); const countSpan = document.createElement('span'); countSpan.textContent = `(${visibleCount}/${totalCount})`; pagDiv.appendChild(countSpan); const showMoreBtn = document.createElement('button'); showMoreBtn.innerHTML = '▼'; showMoreBtn.title = 'Mostrar mais'; showMoreBtn.disabled = visibleCount >= totalCount; showMoreBtn.onclick = () => { const nextBatchStart = visibleCount; const nextBatchEnd = Math.min(totalCount, visibleCount + CARDS_PER_PAGE); for (let i = nextBatchStart; i < nextBatchEnd; i++) { bodyDiv.appendChild(createCardElement(cardsInThisLane[i], lane.value)); currentVisibleCardsByLane[lane.value]++; } updatePaginationControls(); }; pagDiv.appendChild(showMoreBtn); } }
         updatePaginationControls();
         new Sortable(bodyDiv, {
