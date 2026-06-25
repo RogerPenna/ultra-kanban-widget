@@ -62,10 +62,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
   window.GristDataManager = (function () {
     const state = { tables: null, columns: null, allTableMetas: {} };
-    // Records delivered by grist.onRecords (already filtered by Select By linking).
-    // When set, fetchAll uses these instead of fetching the full table.
-    let linkedRecords = null;
-    function setLinkedRecords(recs) { linkedRecords = Array.isArray(recs) ? recs : null; }
+    // IDs of the records delivered by grist.onRecords (already filtered by Select
+    // By linking). When set, fetchAll fetches the full table (for resolved
+    // reference values etc.) and then keeps only these rows. null = no active
+    // link, so the full table is shown unfiltered.
+    let linkedRowIds = null;
+    function setLinkedRowIds(recs) {
+      linkedRowIds = Array.isArray(recs) ? new Set(recs.map(r => r.id)) : null;
+    }
     async function loadMeta() {
       const p = [];
       try {
@@ -95,10 +99,10 @@ document.addEventListener('DOMContentLoaded', function () {
       return cols;
     }
     function colToRows(colData) { if (!colData || typeof colData.id === 'undefined' || colData.id === null) { console.warn("GDM.colToRows: colData ou colData.id inválido/nulo."); return []; } const rows = []; const keys = Object.keys(colData); const n = colData.id.length; for (let i = 0; i < n; i++) { const r = {}; keys.forEach(k => r[k] = colData[k][i]); rows.push(r); } return rows; }
-    async function fetchAll() { const defaultReturn = { mainTable: { nameId: null, numericId: null, columns: [] }, allData: {}, allTablesList: [] }; try { await loadMeta(); const tableId = await grist.selectedTable.getTableId(); if (!tableId) { console.warn("GDM.fetchAll: Nenhuma tabela selecionada."); return defaultReturn; } const numId = numericId(tableId); if (!numId) { console.warn(`GDM.fetchAll: numId não encontrado para '${tableId}'.`); return { ...defaultReturn, mainTable: { nameId: tableId, numericId: null, columns: [] }, allTablesList: getAllTableIdsAndNames() }; } const cols = columnsOf(numId); let data = []; if (Array.isArray(linkedRecords)) { data = linkedRecords; } else { try { const rawData = await grist.docApi.fetchTable(tableId); data = colToRows(rawData); } catch (fetchError) { console.error(`GDM.fetchAll: Erro fetch dados '${tableId}'.`, fetchError); } } return { mainTable: { nameId: tableId, numericId: numId, columns: cols }, allData: { [tableId]: data }, allTablesList: getAllTableIdsAndNames() }; } catch (error) { console.error("GDM.fetchAll: Erro busca.", error); return defaultReturn; } }
+    async function fetchAll() { const defaultReturn = { mainTable: { nameId: null, numericId: null, columns: [] }, allData: {}, allTablesList: [] }; try { await loadMeta(); const tableId = await grist.selectedTable.getTableId(); if (!tableId) { console.warn("GDM.fetchAll: Nenhuma tabela selecionada."); return defaultReturn; } const numId = numericId(tableId); if (!numId) { console.warn(`GDM.fetchAll: numId não encontrado para '${tableId}'.`); return { ...defaultReturn, mainTable: { nameId: tableId, numericId: null, columns: [] }, allTablesList: getAllTableIdsAndNames() }; } const cols = columnsOf(numId); let data = []; try { const rawData = await grist.docApi.fetchTable(tableId); data = colToRows(rawData); } catch (fetchError) { console.error(`GDM.fetchAll: Erro fetch dados '${tableId}'.`, fetchError); } if (linkedRowIds) { data = data.filter(r => linkedRowIds.has(r.id)); } return { mainTable: { nameId: tableId, numericId: numId, columns: cols }, allData: { [tableId]: data }, allTablesList: getAllTableIdsAndNames() }; } catch (error) { console.error("GDM.fetchAll: Erro busca.", error); return defaultReturn; } }
     function getAllTableIdsAndNames() { if (!state.tables || !state.tables.tableId) { console.warn("GDM.getAllTableIdsAndNames: state.tables não carregado."); return []; } return state.tables.tableId.map((id, index) => ({ id: String(id), name: String(state.tables.label?.[index] || state.tables.tableId[index] || id) })).filter(t => !t.id.startsWith('_grist_')); }
     async function getTableSchema(tableId) { if (state.allTableMetas[tableId]) { return state.allTableMetas[tableId]; } await loadMeta(); const numTableId = numericId(tableId); if (!numTableId) { console.warn(`GDM.getTableSchema: ID numérico não encontrado para tableId: ${tableId}`); return { tableId: tableId, columns: [] }; } const cols = columnsOf(numTableId); const schema = { tableId: tableId, columns: cols }; state.allTableMetas[tableId] = schema; return schema; }
-    return { fetchAll, getAllTableIdsAndNames, getTableSchema, colToRows, columnsOf, setLinkedRecords };
+    return { fetchAll, getAllTableIdsAndNames, getTableSchema, colToRows, columnsOf, setLinkedRowIds };
   })();
 
     window.WidgetConfigManager = (function() {
@@ -1437,15 +1441,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     grist.onRecords(async (newRecords, oldRecords, summaryOrTableId) => {
-        // newRecords is already filtered by Select By linking. Cache it so
-        // fetchAll uses the filtered set instead of the full table.
-        GristDataManager.setLinkedRecords(newRecords || []);
+        // newRecords is already filtered by Select By linking. Record the IDs so
+        // fetchAll can fetch the full table (resolved refs) and keep only these.
+        GristDataManager.setLinkedRowIds(newRecords || []);
         if (isInitialLoad) {
-          console.log("grist.onRecords: chamada inicial — renderizando com registros filtrados.");
-          isInitialLoad = false;
-        } else {
-          console.log("grist.onRecords triggered. Reloading Kanban.");
+          // First fire: just capture the linked IDs. The initial render below
+          // (loadGristDataAndSetupKanban) will pick them up. Avoids a double
+          // render on load.
+          console.log("grist.onRecords: chamada inicial — filtro de link capturado.");
+          return;
         }
+        console.log("grist.onRecords triggered. Reloading Kanban.");
         await loadGristDataAndSetupKanban();
     });
 
@@ -1475,9 +1481,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Carrega o idioma padrão primeiro
     await loadLanguage(currentLang);
 
-    // Initial render is driven by the grist.onRecords handler above, which fires
-    // once on load with the current Select-By-filtered record set. No eager
-    // full-table load here (it would ignore the active link filter).
+    // Initial load call
+    loadGristDataAndSetupKanban();
     
 // --- LÓGICA DE TROCA DE IDIOMA ---
     const langSelect = document.getElementById('cfg-lang-select');
